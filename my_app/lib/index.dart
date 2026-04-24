@@ -60,8 +60,33 @@ class LookOnlyCalendar extends StatefulWidget {
 class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
   final CalendarController _calendarController = CalendarController();
   late final List<_AppointmentRecord> _appointmentRecords;
+  late final Map<String, _AppointmentRecord> _appointmentRecordIndex;
+  final DateFormat _monthYearFormatter = DateFormat.yMMMM('ja_JP');
   DateTime _displayDate = DateTime.now();
   CalendarView _calendarView = CalendarView.day;
+
+  static const List<String> _weekdayLabels = <String>[
+    'MON',
+    'TUE',
+    'WED',
+    'THU',
+    'FRI',
+    'SAT',
+    'SUN',
+  ];
+
+  static const List<_DrawerMenuItem> _drawerMenuItems = <_DrawerMenuItem>[
+    _DrawerMenuItem(
+      icon: Icons.account_circle_outlined,
+      title: 'アカウント情報',
+      destination: _MenuDestination.accountInfo,
+    ),
+    _DrawerMenuItem(
+      icon: Icons.edit_calendar_outlined,
+      title: '予定編集',
+      destination: _MenuDestination.scheduleEdit,
+    ),
+  ];
 
   @override
   void initState() {
@@ -99,6 +124,10 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
         description: '一次面接。接続確認を事前に行ってください'
       ),
     ];
+    _appointmentRecordIndex = <String, _AppointmentRecord>{
+      for (final _AppointmentRecord record in _appointmentRecords)
+        _appointmentKey(record.appointment): record,
+    };
   }
 
   @override
@@ -123,14 +152,13 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
                 ),
               ),
               const Divider(height: 1),
-              _buildDrawerItem(
-                icon: Icons.account_circle_outlined,
-                title: 'アカウント情報',
-              ),
-              _buildDrawerItem(
-                icon: Icons.edit_calendar_outlined,
-                title: '予定編集',
-              ),
+              ..._drawerMenuItems.map((item) {
+                return _buildDrawerItem(
+                  icon: item.icon,
+                  title: item.title,
+                  destination: item.destination,
+                );
+              }),
               SwitchListTile(
                 secondary: const Icon(Icons.dark_mode_outlined),
                 title: const Text('ダークモード'),
@@ -186,10 +214,10 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
-                IconButton(
+                _buildDateMoveButton(
                   tooltip: '1日前へ',
-                  onPressed: () => _moveDisplayDate(-1),
-                  icon: const Icon(Icons.chevron_left),
+                  dayOffset: -1,
+                  icon: Icons.chevron_left,
                 ),
                 Container(
                   decoration: BoxDecoration(
@@ -198,48 +226,22 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: [
-                      InkWell(
-                        borderRadius: BorderRadius.circular(10),
-                        onTap: () => _changeCalendarView(CalendarView.day),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _calendarView == CalendarView.day
-                                ? Colors.grey.shade300
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text('1日'),
-                        ),
-                      ),
-                      InkWell(
-                        borderRadius: BorderRadius.circular(10),
-                        onTap: () => _changeCalendarView(CalendarView.month),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _calendarView == CalendarView.month
-                                ? Colors.grey.shade300
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text('月'),
-                        ),
-                      ),
-                    ],
+                    children:
+                        <CalendarView>[
+                          CalendarView.day,
+                          CalendarView.month,
+                        ].map((CalendarView view) {
+                          return _buildViewToggle(
+                            view: view,
+                            label: view == CalendarView.day ? '1日' : '月',
+                          );
+                        }).toList(),
                   ),
                 ),
-                IconButton(
+                _buildDateMoveButton(
                   tooltip: '1日後へ',
-                  onPressed: () => _moveDisplayDate(1),
-                  icon: const Icon(Icons.chevron_right),
+                  dayOffset: 1,
+                  icon: Icons.chevron_right,
                 ),
               ],
             ),
@@ -394,7 +396,7 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
                 }
 
                 if (_calendarView == CalendarView.month) {
-                  _openDayViewForDate(details.date!);
+                  _selectDisplayDate(details.date!, switchToDayView: true);
                   return;
                 }
 
@@ -412,16 +414,41 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
                   return;
                 }
                 setState(() {
-                  _displayDate = DateTime(
-                    newDate.year,
-                    newDate.month,
-                    newDate.day,
-                  );
+                  _displayDate = _normalizeDate(newDate);
                 });
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  IconButton _buildDateMoveButton({
+    required String tooltip,
+    required int dayOffset,
+    required IconData icon,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: () => _moveDisplayDate(dayOffset),
+      icon: Icon(icon),
+    );
+  }
+
+  Widget _buildViewToggle({required CalendarView view, required String label}) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => _changeCalendarView(view),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: _calendarView == view
+              ? Colors.grey.shade300
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(label),
       ),
     );
   }
@@ -434,17 +461,21 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
     );
   }
 
-  Widget _buildDrawerItem({required IconData icon, required String title}) {
+  Widget _buildDrawerItem({
+    required IconData icon,
+    required String title,
+    required _MenuDestination destination,
+  }) {
     return ListTile(
       leading: Icon(icon),
       title: Text(title),
-      onTap: () => _openMenuPage(title),
+      onTap: () => _openMenuPage(destination),
     );
   }
 
-  void _openMenuPage(String title) {
+  void _openMenuPage(_MenuDestination destination) {
     Navigator.of(context).pop();
-    if (title == 'アカウント情報') {
+    if (destination == _MenuDestination.accountInfo) {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (BuildContext context) => const _AccountInfoPage(),
@@ -454,18 +485,30 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => _MenuPage(title: title),
+        builder: (BuildContext context) =>
+            _MenuPage(title: _menuDestinationTitle(destination)),
       ),
     );
   }
 
+  String _menuDestinationTitle(_MenuDestination destination) {
+    switch (destination) {
+      case _MenuDestination.accountInfo:
+        return 'アカウント情報';
+      case _MenuDestination.scheduleEdit:
+        return '予定編集';
+    }
+  }
+
   DateTime _startOfWeek(DateTime date) {
-    final DateTime normalized = DateTime(date.year, date.month, date.day);
+    final DateTime normalized = _normalizeDate(date);
     return normalized.subtract(Duration(days: normalized.weekday - 1));
   }
 
   void _moveDisplayDate(int days) {
-    final DateTime base = _calendarController.displayDate ?? _displayDate;
+    final DateTime base = _normalizeDate(
+      _calendarController.displayDate ?? _displayDate,
+    );
     late final DateTime next;
 
     if (_calendarView == CalendarView.month) {
@@ -478,11 +521,7 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
       final int targetDay = base.day <= lastDay ? base.day : lastDay;
       next = DateTime(movedMonth.year, movedMonth.month, targetDay);
     } else {
-      next = DateTime(
-        base.year,
-        base.month,
-        base.day,
-      ).add(Duration(days: days));
+      next = base.add(Duration(days: days));
     }
     _selectDisplayDate(next);
   }
@@ -494,21 +533,11 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
     });
   }
 
-  void _openDayViewForDate(DateTime date) {
-    final DateTime normalized = DateTime(date.year, date.month, date.day);
-    setState(() {
-      _displayDate = normalized;
-      _calendarView = CalendarView.day;
-      _calendarController.displayDate = normalized;
-      _calendarController.view = CalendarView.day;
-    });
-  }
-
   void _openAppointmentDetail(_AppointmentRecord record) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) =>
-            _AppointmentDetailPage.withRecord(record: record),
+            _AppointmentDetailPage(record: record),
       ),
     );
   }
@@ -525,16 +554,24 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
       return;
     }
 
-    final DateTime normalized = DateTime(picked.year, picked.month, picked.day);
+    final DateTime normalized = _normalizeDate(picked);
     _selectDisplayDate(normalized);
   }
 
-  void _selectDisplayDate(DateTime date) {
-    final DateTime normalized = DateTime(date.year, date.month, date.day);
+  void _selectDisplayDate(DateTime date, {bool switchToDayView = false}) {
+    final DateTime normalized = _normalizeDate(date);
     setState(() {
       _displayDate = normalized;
       _calendarController.displayDate = normalized;
+      if (switchToDayView) {
+        _calendarView = CalendarView.day;
+        _calendarController.view = CalendarView.day;
+      }
     });
+  }
+
+  DateTime _normalizeDate(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
   }
 
   bool _isSameDate(DateTime a, DateTime b) {
@@ -542,20 +579,11 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
   }
 
   String _weekdayLabel(DateTime date) {
-    const List<String> labels = <String>[
-      'MON',
-      'TUE',
-      'WED',
-      'THU',
-      'FRI',
-      'SAT',
-      'SUN',
-    ];
-    return labels[date.weekday - 1];
+    return _weekdayLabels[date.weekday - 1];
   }
 
   String _monthYearLabel(DateTime date) {
-    return DateFormat.yMMMM('ja_JP').format(date);
+    return _monthYearFormatter.format(date);
   }
 
   // サンプルデータ。見た目確認用。
@@ -567,14 +595,12 @@ class _LookOnlyCalendarState extends State<LookOnlyCalendar> {
   }
 
   _AppointmentRecord? _findRecord(Appointment appointment) {
-    for (final _AppointmentRecord record in _appointmentRecords) {
-      if (record.appointment.startTime == appointment.startTime &&
-          record.appointment.endTime == appointment.endTime &&
-          record.appointment.subject == appointment.subject) {
-        return record;
-      }
-    }
-    return null;
+    return _appointmentRecordIndex[_appointmentKey(appointment)];
+  }
+
+  String _appointmentKey(Appointment appointment) {
+    return '${appointment.startTime.millisecondsSinceEpoch}_'
+        '${appointment.endTime.millisecondsSinceEpoch}_${appointment.subject}';
   }
 }
 
@@ -605,15 +631,34 @@ class _AppointmentRecord {
 }
 
 class _AppointmentDetailPage extends StatelessWidget {
-  const _AppointmentDetailPage() : record = null;
+  const _AppointmentDetailPage({required this.record});
 
-  const _AppointmentDetailPage.withRecord({required this.record});
+  final _AppointmentRecord record;
 
-  final _AppointmentRecord? record;
+  static final DateFormat _detailFormatter = DateFormat(
+    'yyyy/MM/dd(E) HH:mm',
+    'ja_JP',
+  );
 
   @override
   Widget build(BuildContext context) {
-    final DateFormat formatter = DateFormat('yyyy/MM/dd(E) HH:mm', 'ja_JP');
+    final List<Widget> detailRows = <Widget>[
+      _DetailRow(
+        label: '開始',
+        value: _detailFormatter.format(record.appointment.startTime),
+      ),
+      _DetailRow(
+        label: '終了',
+        value: _detailFormatter.format(record.appointment.endTime),
+      ),
+      _DetailRow(label: '担当者', value: record.ownerName),
+      _DetailRow(label: '種別', value: record.category),
+      if (record.location.isNotEmpty)
+        _DetailRow(label: '場所', value: record.location),
+      _DetailRow(label: '参加者', value: record.participants.join(' / ')),
+      _DetailRow(label: '通知', value: record.notification),
+      _DetailRow(label: 'メモ', value: record.description),
+    ];
 
     return Scaffold(
       appBar: AppBar(title: const Text('予定の詳細')),
@@ -623,40 +668,17 @@ class _AppointmentDetailPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              record?.appointment.subject ?? '予定�E詳細',
+              record.appointment.subject,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            _DetailRow(
-              label: '開始',
-              value: record == null
-                  ? '未設定'
-                  : formatter.format(record!.appointment.startTime),
-            ),
-            const SizedBox(height: 8),
-            _DetailRow(
-              label: '終了',
-              value: record == null
-                  ? '未設定'
-                  : formatter.format(record!.appointment.endTime),
-            ),
-            const SizedBox(height: 8),
-            _DetailRow(label: '担当者', value: record?.ownerName ?? '未設定'),
-            const SizedBox(height: 8),
-            _DetailRow(label: '種別', value: record?.category ?? '未設定'),
-            if ((record?.location ?? '').isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _DetailRow(label: '場所', value: record!.location),
-            ],
-            const SizedBox(height: 8),
-            _DetailRow(
-              label: '参加者',
-              value: record?.participants.join(' / ') ?? '未設定',
-            ),
-            const SizedBox(height: 8),
-            _DetailRow(label: '通知', value: record?.notification ?? '未設定'),
-            const SizedBox(height: 8),
-            _DetailRow(label: 'メモ', value: record?.description ?? '未設定'),
+            detailRows.first,
+            ...detailRows.skip(1).map((Widget row) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: row,
+              );
+            }),
           ],
         ),
       ),
@@ -707,6 +729,35 @@ class _MenuPage extends StatelessWidget {
 class _AccountInfoPage extends StatelessWidget {
   const _AccountInfoPage();
 
+  static const List<_AccountSectionItem> _accountSections =
+      <_AccountSectionItem>[
+        _AccountSectionItem(
+          icon: Icons.shield_outlined,
+          title: 'セキュリティ',
+          subtitle: 'ログイン保護や認証設定',
+        ),
+        _AccountSectionItem(
+          icon: Icons.link_outlined,
+          title: '他アカウントサービス',
+          subtitle: '外部サービスとの連携管理',
+        ),
+        _AccountSectionItem(
+          icon: Icons.badge_outlined,
+          title: 'ID設定',
+          subtitle: 'ログインIDの確認・変更',
+        ),
+        _AccountSectionItem(
+          icon: Icons.key_outlined,
+          title: 'Pass設定',
+          subtitle: 'パスワード変更と管理',
+        ),
+        _AccountSectionItem(
+          icon: Icons.pin_outlined,
+          title: 'PIN設定',
+          subtitle: 'PINコードによる簡易認証',
+        ),
+      ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -719,35 +770,43 @@ class _AccountInfoPage extends StatelessWidget {
             subtitle: Text('登録情報や連携状態を確認できます。'),
           ),
           const Divider(height: 1),
-          _AccountSectionTile(
-            icon: Icons.shield_outlined,
-            title: 'セキュリティ',
-            subtitle: 'ログイン保護や証明書の設定',
-          ),
-          _AccountSectionTile(
-            icon: Icons.link_outlined,
-            title: '他アカウントサービス',
-            subtitle: '外部サービスとの連携管理',
-          ),
-          _AccountSectionTile(
-            icon: Icons.badge_outlined,
-            title: 'ID設定',
-            subtitle: 'ログインIDの確認・変更',
-          ),
-          _AccountSectionTile(
-            icon: Icons.key_outlined,
-            title: 'Pass設定',
-            subtitle: 'パスワード変更と管理',
-          ),
-          _AccountSectionTile(
-            icon: Icons.pin_outlined,
-            title: 'PIN設定',
-            subtitle: 'PINコードによる簡易認証',
-          ),
+          ..._accountSections.map((item) {
+            return _AccountSectionTile(
+              icon: item.icon,
+              title: item.title,
+              subtitle: item.subtitle,
+            );
+          }),
         ],
       ),
     );
   }
+}
+
+enum _MenuDestination { accountInfo, scheduleEdit }
+
+class _DrawerMenuItem {
+  const _DrawerMenuItem({
+    required this.icon,
+    required this.title,
+    required this.destination,
+  });
+
+  final IconData icon;
+  final String title;
+  final _MenuDestination destination;
+}
+
+class _AccountSectionItem {
+  const _AccountSectionItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
 }
 
 class _AccountSectionTile extends StatelessWidget {
